@@ -1,28 +1,40 @@
 import Foundation
 
-/// Virtual viewport a preview lays out at. The page renders at this CSS width and is then
-/// zoomed to fit the card, like a scaled-down screenshot rather than a narrow browser.
+/// Virtual screen a preview lays out at. The page always sees this CSS size and the card shows it
+/// scaled, like a live screenshot, so shrinking a card never reflows the page.
 enum Viewport: String, CaseIterable {
     case desktop = "Desktop"
     case laptop = "Laptop"
     case tablet = "Tablet"
     case mobile = "Mobile"
 
-    var width: CGFloat {
+    /// Natural CSS size of a common device in this class.
+    var size: CGSize {
         switch self {
-        case .desktop: 1440
-        case .laptop: 1280
-        case .tablet: 834
-        case .mobile: 390
+        case .desktop: CGSize(width: 1440, height: 900)
+        case .laptop: CGSize(width: 1280, height: 800)
+        case .tablet: CGSize(width: 834, height: 1194)
+        case .mobile: CGSize(width: 390, height: 844)
         }
     }
 
-    /// Content aspect (width / height) a card should take for this viewport, if it has a natural one.
-    var suggestedAspect: CGFloat? {
-        self == .mobile ? 9.0 / 16.0 : nil
+    var width: CGFloat { size.width }
+
+    /// Content aspect (width / height) a card locks to for this viewport.
+    var aspect: CGFloat { size.width / size.height }
+
+    /// CSS size the page sees in a content area of `content` points: fixed width, height from the area's shape.
+    func virtualSize(for content: CGSize) -> CGSize {
+        CGSize(width: width, height: width * content.height / max(content.width, 1))
     }
 
-    func pageZoom(forCardWidth cardWidth: CGFloat) -> CGFloat {
+    /// Screen points per CSS pixel for a content area `cardWidth` points wide.
+    func scale(forCardWidth cardWidth: CGFloat) -> CGFloat {
         max(cardWidth, 1) / width
+    }
+
+    /// Below this a preview is an unreadable thumbnail.
+    var minCardWidth: CGFloat {
+        max(Config.minCardSize.width, (width * Config.minPreviewScale).rounded())
     }
 }

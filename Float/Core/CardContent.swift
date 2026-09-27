@@ -10,6 +10,8 @@ protocol CardContent: AnyObject {
     var title: String { get }
     /// Optional controls shown in the chrome strip next to the title.
     var accessory: NSView? { get }
+    /// Narrowest the card may be resized to.
+    var minWidth: CGFloat { get }
     var onTitleChange: ((String) -> Void)? { get set }
     /// Called when the content wants its card removed (e.g. the shell exited).
     var onRequestClose: (() -> Void)? { get set }
@@ -26,6 +28,7 @@ protocol CardContent: AnyObject {
 
 extension CardContent {
     var accessory: NSView? { nil }
+    var minWidth: CGFloat { Config.minCardSize.width }
     func focus() { view.window?.makeFirstResponder(view) }
     func confirmClose() -> Bool { true }
     func zoom(by step: Int) {}

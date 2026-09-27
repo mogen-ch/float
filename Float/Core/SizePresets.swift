@@ -19,17 +19,48 @@ enum AspectPreset: String, CaseIterable {
     }
 }
 
-/// Card widths offered in the card menu.
+/// Card sizes offered in the card menu, relative to the screen so L stays large on a big display.
 enum SizePreset: String, CaseIterable {
     case small = "S"
     case medium = "M"
     case large = "L"
 
-    var width: CGFloat {
+    /// Share of the canvas width a landscape card takes (S/M/L = 400/560/800pt on a 1512pt MacBook).
+    var widthFraction: CGFloat {
         switch self {
-        case .small: 400
-        case .medium: 560
-        case .large: 800
+        case .small: 0.265
+        case .medium: 0.37
+        case .large: 0.53
         }
+    }
+
+    /// Share of the usable height a portrait card's content takes.
+    var heightFraction: CGFloat {
+        switch self {
+        case .small: 0.45
+        case .medium: 0.65
+        case .large: 0.9
+        }
+    }
+
+    var minWidth: CGFloat {
+        switch self {
+        case .small: 360
+        case .medium: 480
+        case .large: 640
+        }
+    }
+
+    /// Card size (chrome included) for a content `aspect` (width / height) on a canvas of `bounds`.
+    func size(
+        aspect: CGFloat, in bounds: CGRect,
+        padding: CGFloat = Config.padding, chrome: CGFloat = Theme.chromeHeight
+    ) -> CGSize {
+        let area = bounds.insetBy(dx: padding, dy: padding)
+        var w = aspect >= 1
+            ? max(minWidth, widthFraction * bounds.width)
+            : max(Config.minCardSize.width, heightFraction * area.height * aspect)
+        w = min(w, (area.height * Config.maxCardHeightFraction - chrome) * aspect, area.width)
+        return CGSize(width: w, height: w / aspect + chrome)
     }
 }

@@ -93,7 +93,7 @@ final class FloatApp: NSObject, NSApplicationDelegate {
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
 
-    @objc private func windowGeometryChanged() { manager.clampAll() }
+    @objc private func windowGeometryChanged() { manager.canvasGeometryChanged() }
 
     // MARK: - Actions
 
@@ -113,7 +113,8 @@ final class FloatApp: NSObject, NSApplicationDelegate {
     func newTerminal(directory: String?, command: String? = nil, spawnFrom: CGRect? = nil) {
         bringToFront()
         let dir = directory ?? (manager.focused?.content as? TerminalCard)?.currentDirectory ?? TerminalCard.lastDirectory
-        manager.add(TerminalCard(directory: dir, command: command), size: Config.terminalSize, spawnFrom: spawnFrom)
+        let aspect = Config.terminalSize.width / (Config.terminalSize.height - Theme.chromeHeight)
+        manager.add(TerminalCard(directory: dir, command: command), preset: .medium, aspect: aspect, lockAspect: false, spawnFrom: spawnFrom)
     }
 
     @objc func newPreview() { newPreview(url: Config.defaultURL) }
@@ -121,7 +122,7 @@ final class FloatApp: NSObject, NSApplicationDelegate {
     func newPreview(url: String, spawnFrom: CGRect? = nil) {
         bringToFront()
         let web = WebCard(url: url)
-        wire(web, to: manager.add(web, size: Config.previewSize, spawnFrom: spawnFrom))
+        wire(web, to: manager.add(web, preset: .medium, aspect: web.viewport.aspect, lockAspect: true, spawnFrom: spawnFrom))
     }
 
     /// Hooks a web card up to the manager, including the cards it opens (popups of popups too).
@@ -133,7 +134,9 @@ final class FloatApp: NSObject, NSApplicationDelegate {
         web.onOpenCard = { [weak self, weak card] newWeb, sizeHint in
             guard let self, let card else { return }
             self.bringToFront()
-            self.wire(newWeb, to: self.manager.add(newWeb, size: sizeHint ?? card.frame.size, beside: card))
+            // A popup that asked for a size keeps it; a link opened in a new card matches its source.
+            let aspect = sizeHint == nil ? card.aspect : nil
+            self.wire(newWeb, to: self.manager.add(newWeb, size: sizeHint ?? card.frame.size, aspect: aspect, beside: card))
         }
     }
 

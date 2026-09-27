@@ -54,8 +54,17 @@ enum Config {
     static let rubberBandResponse: CGFloat = 0.3
     static let reducedMotionDuration: TimeInterval = 0.15
 
+    /// The terminal shape Arrange All aims its grid cells at.
     static let terminalSize = NSSize(width: 560, height: 360)
-    static let previewSize = NSSize(width: 480, height: 300)
+    /// Arrange All never squeezes a terminal below this, even to give previews room.
+    static let terminalFloor = NSSize(width: 400, height: 220)
+    /// Most of the canvas width Arrange All gives previews when terminals share the screen.
+    static let previewShare: CGFloat = 0.5
+    /// S/M/L never make a card taller than this share of the usable height.
+    static let maxCardHeightFraction: CGFloat = 0.9
+    /// Smallest preview scale a card can be resized to, and the scale below which its label dims.
+    static let minPreviewScale: CGFloat = 0.25
+    static let dimPreviewScale: CGFloat = 0.4
 
     static let terminalInset: CGFloat = 10
     static let terminalFontRange: ClosedRange<CGFloat> = 8...32

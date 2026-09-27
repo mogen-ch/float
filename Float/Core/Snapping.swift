@@ -8,9 +8,17 @@ enum Snapping {
     }
 
     /// Moves (and if needed shrinks) a rect so it sits fully inside the padded area.
-    static func clamp(_ rect: CGRect, in bounds: CGRect, padding: CGFloat = Config.padding) -> CGRect {
+    /// With a content `aspect`, shrinking keeps it (the chrome strip stays full height).
+    static func clamp(
+        _ rect: CGRect, in bounds: CGRect, aspect: CGFloat? = nil,
+        padding: CGFloat = Config.padding, chrome: CGFloat = Theme.chromeHeight
+    ) -> CGRect {
         let a = area(bounds, padding: padding)
         var r = rect
+        if let aspect, r.width > a.width || r.height > a.height {
+            r.size.width = min(r.width, a.width, (a.height - chrome) * aspect)
+            r.size.height = r.width / aspect + chrome
+        }
         r.size.width = min(r.width, a.width)
         r.size.height = min(r.height, a.height)
         r.origin.x = min(max(r.minX, a.minX), a.maxX - r.width)
@@ -90,56 +98,79 @@ extension CGRect {
 // MARK: - Arrange All
 
 extension Snapping {
-    /// Terminals in a grid on the left, previews stacked on the right; everything fits in `bounds`.
-    /// `previewAspects` holds each preview's locked content aspect (nil = default preview shape).
+    /// A preview for Arrange All: its locked content aspect and the widest it should get (scale 1).
+    struct PreviewSpec {
+        var aspect: CGFloat
+        var maxWidth: CGFloat
+    }
+
+    /// Previews first: one column on the right, as wide as fits the height, capped at `Config.previewShare`
+    /// of the width and at whatever keeps terminals above `Config.terminalFloor`. Terminals grid in the rest,
+    /// the last row stretched. With no terminals the previews take the whole area in the best column count.
     static func arrange(
-        terminals: Int, previewAspects: [CGFloat?], in bounds: CGRect,
-        gap: CGFloat = Config.gap, chrome: CGFloat = Theme.chromeHeight
+        terminals: Int, previews: [PreviewSpec], in bounds: CGRect,
+        padding: CGFloat = Config.padding, gap: CGFloat = Config.gap, chrome: CGFloat = Theme.chromeHeight
     ) -> (terminals: [CGRect], previews: [CGRect]) {
-        let a = area(bounds)
-        let previewColumn: CGFloat
-        if previewAspects.isEmpty {
-            previewColumn = 0
-        } else if terminals == 0 {
-            previewColumn = min(a.width, Config.previewSize.width * 1.5)
-        } else {
-            previewColumn = min(max(Config.previewSize.width, a.width * 0.3), a.width * 0.45)
+        let a = area(bounds, padding: padding)
+        let maxWidth = previews.map(\.maxWidth).min() ?? .infinity
+
+        /// Widest shared width at which `column` stacked top to bottom fits the height.
+        func stackFit(_ column: [PreviewSpec]) -> CGFloat {
+            let n = CGFloat(column.count)
+            return (a.height - gap * (n - 1) - chrome * n) / column.reduce(0) { $0 + 1 / $1.aspect }
+        }
+        func columns(_ count: Int) -> [[PreviewSpec]] {
+            (0..<count).map { c in stride(from: c, to: previews.count, by: count).map { previews[$0] } }
         }
 
-        // Previews: right-aligned column, each at most an equal share of the height.
-        var previews: [CGRect] = []
-        if !previewAspects.isEmpty {
-            let n = CGFloat(previewAspects.count)
-            let maxH = (a.height - gap * (n - 1)) / n
-            let defaultAspect = Config.previewSize.width / (Config.previewSize.height - chrome)
-            var y = a.minY
-            for aspect in previewAspects {
-                let ratio = aspect ?? defaultAspect
-                var w = previewColumn
-                var h = w / ratio + chrome
-                if h > maxH { h = maxH; w = (h - chrome) * ratio }
-                previews.append(CGRect(x: a.maxX - w, y: y, width: w, height: h))
-                y += h + gap
+        var previewCols = 1
+        var w: CGFloat = 0
+        if !previews.isEmpty && terminals == 0 {
+            for count in 1...previews.count {
+                let fit = min(columns(count).map(stackFit).min()!, (a.width - gap * CGFloat(count - 1)) / CGFloat(count))
+                if fit > w { w = fit; previewCols = count }
             }
+        } else if !previews.isEmpty {
+            let floor = Config.terminalFloor
+            let maxRows = max(1, Int((a.height + gap) / (floor.height + gap)))
+            let cols = CGFloat((terminals + maxRows - 1) / maxRows)
+            let terminalMin = cols * floor.width + gap * (cols - 1)
+            w = min(stackFit(previews), a.width * Config.previewShare, a.width - gap - terminalMin)
+        }
+        w = max(min(w, maxWidth), Config.minCardSize.width).rounded(.down)
+
+        // Previews: `previewCols` columns of width w, right-aligned, each stacked from the top.
+        var previewFrames: [CGRect] = []
+        let blockWidth = previews.isEmpty ? 0 : CGFloat(previewCols) * w + gap * CGFloat(previewCols - 1)
+        var ys = Array(repeating: a.minY, count: previewCols)
+        for (i, p) in previews.enumerated() {
+            let col = i % previewCols
+            let h = (w / p.aspect + chrome).rounded()
+            let x = a.maxX - blockWidth + CGFloat(col) * (w + gap)
+            previewFrames.append(CGRect(x: x, y: ys[col], width: w, height: h))
+            ys[col] += h + gap
         }
 
-        // Terminals: grid in what's left, cells shaped like the default terminal but never larger than 1.4x it.
-        var result: [CGRect] = []
+        // Terminals: grid shaped like the default terminal in what's left; the last row shares its width.
+        var terminalFrames: [CGRect] = []
         if terminals > 0 {
-            let rect = CGRect(x: a.minX, y: a.minY, width: a.width - (previewColumn > 0 ? previewColumn + gap : 0), height: a.height)
+            let rect = CGRect(x: a.minX, y: a.minY, width: a.width - (blockWidth > 0 ? blockWidth + gap : 0), height: a.height)
             let target = Config.terminalSize.width / Config.terminalSize.height
             let cols = (1...terminals).min { c1, c2 in
                 abs(log(cellAspect(terminals, c1, rect, gap) / target)) < abs(log(cellAspect(terminals, c2, rect, gap) / target))
             }!
             let rows = (terminals + cols - 1) / cols
-            let cellW = min((rect.width - gap * CGFloat(cols - 1)) / CGFloat(cols), Config.terminalSize.width * 1.4)
-            let cellH = min((rect.height - gap * CGFloat(rows - 1)) / CGFloat(rows), Config.terminalSize.height * 1.4)
+            let cellH = ((rect.height - gap * CGFloat(rows - 1)) / CGFloat(rows)).rounded(.down)
             for i in 0..<terminals {
-                let col = CGFloat(i % cols), row = CGFloat(i / cols)
-                result.append(CGRect(x: rect.minX + col * (cellW + gap), y: rect.minY + row * (cellH + gap), width: cellW, height: cellH))
+                let row = i / cols, col = i % cols
+                let inRow = CGFloat(min(cols, terminals - row * cols))
+                let cellW = ((rect.width - gap * (inRow - 1)) / inRow).rounded(.down)
+                terminalFrames.append(CGRect(
+                    x: rect.minX + CGFloat(col) * (cellW + gap), y: rect.minY + CGFloat(row) * (cellH + gap),
+                    width: cellW, height: cellH))
             }
         }
-        return (result, previews)
+        return (terminalFrames, previewFrames)
     }
 
     private static func cellAspect(_ n: Int, _ cols: Int, _ rect: CGRect, _ gap: CGFloat) -> CGFloat {

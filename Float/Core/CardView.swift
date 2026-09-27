@@ -6,6 +6,8 @@ final class CardView: NSView {
     let content: CardContent
     /// Locked content aspect ratio (width / height of the area below the chrome).
     var aspect: CGFloat?
+    /// The S/M/L size last picked, re-applied when the canvas changes size; nil once resized by hand.
+    var sizePreset: SizePreset?
     var isFocused = false { didSet { updateBorder(); updateGrabber() } }
 
     var onFocus: ((CardView) -> Void)?
@@ -381,13 +383,14 @@ final class CardView: NSView {
         if e.contains(.right) { w += dx }
         if e.contains(.top) { h -= dy }
         if e.contains(.bottom) { h += dy }
-        w = max(w, min.width)
+        let minW = max(min.width, content.minWidth)
+        w = max(w, minW)
         h = max(h, min.height)
 
         if let aspect {
             let chromeH = Theme.chromeHeight
             if e.isDisjoint(with: [.left, .right]) {
-                w = max((h - chromeH) * aspect, min.width)
+                w = max((h - chromeH) * aspect, minW)
             }
             h = w / aspect + chromeH
         }

@@ -1,11 +1,14 @@
 import AppKit
 import WebKit
 
-/// A web preview: WKWebView at a virtual viewport width, zoomed to the card width.
+/// A web preview: WKWebView at a fixed virtual viewport size, scaled to fit the card like a live screenshot.
 @MainActor
 final class WebCard: NSObject, CardContent {
     let kind = CardKind.web
     private let host = ResizeObservingView()
+    /// Holds the web view at the viewport's CSS size and magnifies it to the card's content area, so AppKit
+    /// scales the page as a whole. pageZoom would trip WebKit's 9pt minimum font size and reflow the page.
+    private let scaler = ScalerView()
     private let webView: FloatWebView
     private let toast = ToastView()
     private let downloads = DownloadManager()
@@ -50,13 +53,13 @@ final class WebCard: NSObject, CardContent {
         webView.onOpenInDefaultBrowser = { [weak self] in self?.nextPopupToBrowser = true }
         webView.isInspectable = true
         webView.allowsBackForwardNavigationGestures = true
-        webView.autoresizingMask = [.width, .height]
-        host.addSubview(webView)
+        scaler.documentView = webView
+        host.addSubview(scaler)
         buildErrorLabel()
         toast.install(in: host)
         permissions = WebPermissions(host: host)
         downloads.onEvent = { [weak self] in self?.downloadEvent($0) }
-        host.onResize = { [weak self] in self?.updateZoom() }
+        host.onResize = { [weak self] in self?.updateScale() }
 
         buildControls()
         observations = [
@@ -135,18 +138,28 @@ final class WebCard: NSObject, CardContent {
         onTitleChange?(newTitle)
     }
 
-    /// Skipped until the card has a width, otherwise a new card briefly lays out at a ~0 zoom.
-    private func updateZoom() {
-        guard host.bounds.width >= 1 else { return }
-        webView.pageZoom = viewport.pageZoom(forCardWidth: host.bounds.width)
+    /// Skipped until the card has a width, otherwise a new card briefly lays out at a ~0 scale.
+    private func updateScale() {
+        let content = host.bounds.size
+        guard content.width >= 1, content.height >= 1 else { return }
+        let virtual = viewport.virtualSize(for: content)
+        scaler.frame = host.bounds
+        webView.frame = CGRect(origin: .zero, size: virtual)
+        scaler.magnification = content.width / virtual.width
+        scaler.contentView.scroll(to: .zero)
+        webView.scrollScale = virtual.width / content.width
+        updateViewportTitle()
     }
 
+    /// Switches the virtual screen and locks the card to its shape.
     func setViewport(_ viewport: Viewport) {
         self.viewport = viewport
+        updateScale()
         updateViewportTitle()
-        updateZoom()
-        onSuggestAspect?(viewport.suggestedAspect)
+        onSuggestAspect?(viewport.aspect)
     }
+
+    var minWidth: CGFloat { viewport.minCardWidth }
 
     // MARK: - Links and downloads
 
@@ -237,8 +250,13 @@ final class WebCard: NSObject, CardContent {
     @objc private func reloadClicked() { reload() }
     @objc private func urlEntered() { load(urlField.stringValue); focus() }
 
+    /// "DESKTOP · 47% ⌄", dimmed once the page is too small to read.
     private func updateViewportTitle() {
-        viewportButton.attributedTitle = Theme.label("\(viewport.rawValue) ⌄", color: Theme.current.chromeText)
+        let scale = viewport.scale(forCardWidth: host.bounds.width)
+        let percent = host.bounds.width >= 1 ? " · \(Int((scale * 100).rounded()))%" : ""
+        let color = scale < Config.dimPreviewScale ? Theme.faint : Theme.current.chromeText
+        let title = Theme.label("\(viewport.rawValue)\(percent) ⌄", color: color)
+        if viewportButton.attributedTitle != title { viewportButton.attributedTitle = title }
     }
 
     @objc private func showViewports() {
@@ -280,9 +298,6 @@ final class WebCard: NSObject, CardContent {
 
 extension WebCard: WKNavigationDelegate {
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) { clearError() }
-
-    /// Re-applied per navigation in case WebKit resets zoom when it swaps web-content processes.
-    func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) { updateZoom() }
 
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
         showError(error, for: failingURL(error) ?? webView.url)
@@ -359,9 +374,24 @@ extension WebCard: WKUIDelegate {
     }
 }
 
-/// Adds "Open in Default Browser" next to WebKit's "Open Link in New Window".
+/// Adds "Open in Default Browser" next to WebKit's "Open Link in New Window", and scrolls at screen speed.
 private final class FloatWebView: WKWebView {
     var onOpenInDefaultBrowser: (() -> Void)?
+    /// CSS pixels per screen point. WebKit applies wheel deltas in CSS pixels, so a scaled-down page
+    /// would scroll slower than the fingers; the deltas are scaled up to match.
+    var scrollScale: CGFloat = 1
+
+    override func scrollWheel(with event: NSEvent) {
+        guard scrollScale != 1, let cg = event.cgEvent?.copy() else { return super.scrollWheel(with: event) }
+        let fields: [CGEventField] = [
+            .scrollWheelEventPointDeltaAxis1, .scrollWheelEventPointDeltaAxis2,
+            .scrollWheelEventFixedPtDeltaAxis1, .scrollWheelEventFixedPtDeltaAxis2,
+        ]
+        for field in fields {
+            cg.setDoubleValueField(field, value: cg.getDoubleValueField(field) * Double(scrollScale))
+        }
+        super.scrollWheel(with: NSEvent(cgEvent: cg) ?? event)
+    }
 
     override func willOpenMenu(_ menu: NSMenu, with event: NSEvent) {
         super.willOpenMenu(menu, with: event)
@@ -407,7 +437,27 @@ private final class InsetFieldCell: NSTextFieldCell {
     }
 }
 
-/// Reports size changes so the page zoom can follow the card width.
+/// A non-scrolling scroll view used only for its magnification; the page does its own scrolling.
+private final class ScalerView: NSScrollView {
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        hasVerticalScroller = false
+        hasHorizontalScroller = false
+        drawsBackground = false
+        allowsMagnification = false
+        minMagnification = 0.01
+        maxMagnification = 10
+        verticalScrollElasticity = .none
+        horizontalScrollElasticity = .none
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    /// Wheel events the page didn't use bubble up here; the preview itself must not move.
+    override func scrollWheel(with event: NSEvent) {}
+}
+
+/// Reports size changes so the page scale can follow the card size.
 private final class ResizeObservingView: NSView {
     var onResize: (() -> Void)?
 
