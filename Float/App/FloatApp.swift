@@ -51,7 +51,7 @@ final class FloatApp: NSObject, NSApplicationDelegate {
     private var settingsSnapshot = ""
     private static var currentSettings: String {
         let d = UserDefaults.standard
-        return [Config.Keys.terminalFontSize, Config.Keys.springDampingRatio, Config.Keys.padding]
+        return [Config.Keys.terminalFontSize, Config.Keys.springDampingRatio, Config.Keys.padding, Config.Keys.optionAsMeta]
             .map { "\(d.object(forKey: $0) ?? "")" }.joined(separator: "|")
     }
 

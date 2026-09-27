@@ -6,6 +6,7 @@ struct SettingsView: View {
     @AppStorage(Config.Keys.defaultViewport) private var viewport = Viewport.desktop.rawValue
     @AppStorage(Config.Keys.springDampingRatio) private var damping = 0.82
     @AppStorage(Config.Keys.padding) private var padding = 16.0
+    @AppStorage(Config.Keys.optionAsMeta) private var optionAsMeta = false
     let launcherHotkey: String
 
     var body: some View {
@@ -13,6 +14,7 @@ struct SettingsView: View {
             Section {
                 Stepper("Terminal font size  \(Int(fontSize)) pt", value: $fontSize,
                         in: Double(Config.terminalFontRange.lowerBound)...Double(Config.terminalFontRange.upperBound))
+                Toggle("Use Option as Meta key", isOn: $optionAsMeta)
                 Picker("Default viewport", selection: $viewport) {
                     ForEach(Viewport.allCases, id: \.rawValue) { Text($0.rawValue).tag($0.rawValue) }
                 }

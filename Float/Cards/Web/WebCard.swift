@@ -39,6 +39,8 @@ final class WebCard: NSObject, CardContent {
         let config = WKWebViewConfiguration()
         config.websiteDataStore = .default()
         config.preferences.isElementFullscreenEnabled = true
+        // A preview should behave like the page on your screen, including autoplaying video with sound.
+        config.mediaTypesRequiringUserActionForPlayback = []
         self.init(configuration: config)
         load(input)
     }
@@ -52,6 +54,7 @@ final class WebCard: NSObject, CardContent {
         webView.uiDelegate = self
         webView.onOpenInDefaultBrowser = { [weak self] in self?.nextPopupToBrowser = true }
         webView.isInspectable = true
+        keepRunningWhileOnScreen()
         webView.allowsBackForwardNavigationGestures = true
         scaler.documentView = webView
         host.addSubview(scaler)
@@ -70,6 +73,14 @@ final class WebCard: NSObject, CardContent {
                 MainActor.assumeIsolated { self?.urlChanged(web.url) }
             },
         ]
+    }
+
+    /// WebKit marks a page hidden when it thinks the window is occluded, which stops requestAnimationFrame and
+    /// freezes CSS transitions and scroll-in reveals. It misjudges Float's transparent screen-sized canvas, so
+    /// visibility here only follows the window being on screen and the card not hidden. Private: no public switch.
+    private func keepRunningWhileOnScreen() {
+        guard webView.responds(to: Selector(("_setWindowOcclusionDetectionEnabled:"))) else { return }
+        webView.setValue(false, forKey: "windowOcclusionDetectionEnabled")
     }
 
     func load(_ input: String) {

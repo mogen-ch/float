@@ -26,7 +26,6 @@ final class TerminalCard: CardContent {
 
     init(directory: String = TerminalCard.lastDirectory, command: String? = nil) {
         title = (directory as NSString).lastPathComponent
-        terminal.optionAsMetaKey = true
         terminal.processDelegate = self
         view.wantsLayer = true
         view.frame = CGRect(x: 0, y: 0, width: 400, height: 300)
@@ -134,6 +133,7 @@ final class TerminalCard: CardContent {
     /// Colours, ANSI palette and font from the theme; also re-reads the font size from Settings.
     func applyTheme() {
         let t = Theme.current
+        terminal.optionAsMetaKey = Config.optionAsMeta
         terminal.font = Theme.mono(fontSize)
         terminal.nativeBackgroundColor = t.terminalBackground
         terminal.nativeForegroundColor = t.terminalForeground

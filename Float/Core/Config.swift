@@ -10,6 +10,7 @@ enum Config {
         static let defaultViewport = "defaultViewport"
         static let springDampingRatio = "springDampingRatio"
         static let padding = "cardPadding"
+        static let optionAsMeta = "optionAsMeta"
     }
 
     static func registerDefaults() {
@@ -18,11 +19,14 @@ enum Config {
             Keys.defaultViewport: Viewport.desktop.rawValue,
             Keys.springDampingRatio: 0.82,
             Keys.padding: 16.0,
+            Keys.optionAsMeta: false,
         ])
     }
 
     static var padding: CGFloat { CGFloat(UserDefaults.standard.double(forKey: Keys.padding)) }
     static var terminalFontSize: CGFloat { CGFloat(UserDefaults.standard.double(forKey: Keys.terminalFontSize)) }
+    /// Off, ⌥ types the layout's character (⌥G = @ on Swiss German), like Terminal.app. On, it sends ESC+key for emacs/vim.
+    static var optionAsMeta: Bool { UserDefaults.standard.bool(forKey: Keys.optionAsMeta) }
     static var springDampingRatio: CGFloat { CGFloat(UserDefaults.standard.double(forKey: Keys.springDampingRatio)) }
     static var defaultViewport: Viewport {
         Viewport(rawValue: UserDefaults.standard.string(forKey: Keys.defaultViewport) ?? "") ?? .desktop
